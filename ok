@@ -3,129 +3,72 @@ import time
 import matplotlib.pyplot as plt
 import RPi.GPIO as gpio
 
-
-# Настройки
 mxv = 5.150
+r2r = ac.MCP3021(mxv)
+
 time_measure = 0.001
-
-charge_voltage = 4.68
-discharge_voltage = 0.05
-
-control_pin = 14
-
-# Создание АЦП
-adc = ac.MCP3021(mxv)
-
-# Массивы для графика
 x = []
 y = []
 
-
 gpio.setmode(gpio.BCM)
-gpio.setup(control_pin, gpio.OUT, initial=0)
-
+gpio.setup(14, gpio.OUT, initial=0)
 
 try:
-    # 1. Ожидание полной разрядки конденсатора
-    gpio.output(control_pin, 0)
+    gpio.output(14, 0)
 
-    print("Ожидание разрядки конденсатора...")
-
+    # Ожидание полной разрядки конденсатора
     while True:
-        voltage = adc.get_voltage()
+        voltage = r2r.get_voltage()
 
-        if voltage <= discharge_voltage:
+        if voltage < 0.05:
             break
 
         time.sleep(time_measure)
 
-    print("Конденсатор разряжен.")
-    print("Начало зарядки...")
-
-    # 2. Зарядка конденсатора
-    gpio.output(control_pin, 1)
-
-    time_start = time.monotonic()
+    # Зарядка конденсатора
+    gpio.output(14, 1)
+    time_null_def = time.monotonic()
 
     while True:
-        voltage = adc.get_voltage()
-        current_time = time.monotonic() - time_start
+        x0 = time.monotonic() - time_null_def
+        y0 = r2r.get_voltage()
 
-        x.append(current_time)
-        y.append(voltage)
+        x.append(x0)
+        y.append(y0)
 
-        if voltage >= charge_voltage:
+        if y0 >= 4.68:
             break
 
         time.sleep(time_measure)
 
-    print("Зарядка завершена.")
-    print("Начало разрядки...")
-
-    # 3. Разрядка конденсатора
-    gpio.output(control_pin, 0)
+    # Разрядка конденсатора
+    gpio.output(14, 0)
 
     while True:
-        voltage = adc.get_voltage()
-        current_time = time.monotonic() - time_start
+        x0 = time.monotonic() - time_null_def
+        y0 = r2r.get_voltage()
 
-        x.append(current_time)
-        y.append(voltage)
+        x.append(x0)
+        y.append(y0)
 
-        if voltage <= discharge_voltage:
+        if y0 <= 0.05:
             break
 
         time.sleep(time_measure)
-
-    print("Измерение завершено.")
-
 
 finally:
-    # Выключение управляющего сигнала и освобождение ресурсов
-    gpio.output(control_pin, 0)
+    gpio.output(14, 0)
     gpio.cleanup()
-    adc.deinit()
+    r2r.deinit()
 
 
-# 4. Построение графика — исходное оформление
+# Построение графика — твоя изначальная функция
 plt.figure(figsize=(10, 6))
-
-plt.ticklabel_format(
-    style='sci',
-    axis='both',
-    scilimits=(0, 0),
-    useMathText=True
-)
-
+plt.ticklabel_format(style='sci', axis='both', scilimits=(0, 0), useMathText=True)
 plt.minorticks_on()
-
-plt.grid(
-    visible=True,
-    which='major',
-    linestyle='-',
-    linewidth=1.5,
-    color='0.7'
-)
-
-plt.grid(
-    visible=True,
-    which='minor',
-    linestyle='--',
-    linewidth=1,
-    color='0.8'
-)
-
+plt.grid(visible=True, which='major', linestyle='-', linewidth=1.5, color='0.7')
+plt.grid(visible=True, which='minor', linestyle='--', linewidth=1, color='0.8')
 plt.xlabel(r"$T, seconds$")
 plt.ylabel(r"$U, Volts$")
-
-plt.plot(
-    x,
-    y,
-    label='graph',
-    marker='',
-    linestyle='-',
-    color='#abcf40',
-    linewidth=1
-)
-
+plt.plot(x, y, label='graph', marker='', linestyle='-', color='#abcf40', linewidth=1)
 plt.show()
