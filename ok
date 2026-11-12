@@ -1,29 +1,14 @@
+
+
+import RPi.GPIO as gpio
 import time
 import smbus
-import RPi.GPIO as gpio
-import matplotlib.pyplot as plt
-
-
-# ---------------- НАСТРОЙКИ ----------------
-
-mxv = 5.150
-address = 0x4D
-bus_number = 1
-
-control_pin = 14
-
-time_measure = 0.001
-charge_limit = 4.68
-discharge_limit = 0.05
-
-
-# ---------------- ДРАЙВЕР MCP3021 ----------------
 
 class MCP3021:
-    def __init__(self, dynamic_range, verbose=False):
-        self.bus = smbus.SMBus(bus_number)
+    def __init__(self, dynamic_range, verbose = False):
+        self.bus = smbus.SMBus(1)
         self.dynamic_range = dynamic_range
-        self.address = address
+        self.address = 0x4D
         self.verbose = verbose
 
     def deinit(self):
@@ -31,118 +16,80 @@ class MCP3021:
 
     def get_number(self):
         data = self.bus.read_word_data(self.address, 0)
-
         lower_data_byte = data >> 8
         upper_data_byte = data & 0xFF
-
         number = (upper_data_byte << 6) | (lower_data_byte >> 2)
-
+        #if self.verbose:
+        #print(f"Принятые данные: {data}, Старший байт: {upper_data_byte:x}, Младший байт: {lower_data_byte:x}, Число: {number}")
         return number
-
     def get_voltage(self):
-        return (self.get_number() / 1024) * self.dynamic_range
+        #print(0, self.sequential_counting_adc())
+        return (self.get_number()/1024)*self.dynamic_range
 
+import i2c_adc as ac
+import time
+import matplotlib.pyplot as plt
+import RPi.GPIO as gpio
 
-# ---------------- ИЗМЕРЕНИЕ ----------------
+mxv = 5.150
 
-adc = MCP3021(mxv)
+r2r = ac.MCP3021(mxv)
+
+time_null = time.time()
+
+time_measure = 0.001
 
 x = []
 y = []
 
+sampl_per = []
+
+#print(r2r.get_sc_voltage())
+
 gpio.setmode(gpio.BCM)
-gpio.setup(control_pin, gpio.OUT, initial=0)
+gpio.setup(14, gpio.OUT, initial = 0)
 
-try:
-    # Ожидание полной разрядки
-    gpio.output(control_pin, 0)
+gpio.output(14, 0)
 
-    while True:
-        voltage = adc.get_voltage()
+while True:
+    if r2r.get_voltage()<0.05:
+        break
+    print("lol", r2r.get_voltage())
 
-        if voltage < discharge_limit:
-            break
+gpio.output(14, 1)
+time_null_def = time.time()
 
-        time.sleep(time_measure)
+while (r2r.get_voltage()<4.68):
+    x0 = time.time()-time_null_def
+    x.append(x0)
+    y0 = r2r.get_voltage()
+    y.append(y0)
+    #time.sleep(time_measure)
+    print(y0)
+    #sampl_per.append(time.time()-x0)
 
-    # Зарядка
-    gpio.output(control_pin, 1)
-
-    time_null_def = time.monotonic()
-
-    while True:
-        x0 = time.monotonic() - time_null_def
-        y0 = adc.get_voltage()
-
-        x.append(x0)
-        y.append(y0)
-
-        if y0 >= charge_limit:
-            break
-
-        time.sleep(time_measure)
-
-    # Разрядка
-    gpio.output(control_pin, 0)
-
-    while True:
-        x0 = time.monotonic() - time_null_def
-        y0 = adc.get_voltage()
-
-        x.append(x0)
-        y.append(y0)
-
-        if y0 <= discharge_limit:
-            break
-
-        time.sleep(time_measure)
-
-finally:
-    gpio.output(control_pin, 0)
-    gpio.cleanup()
-    adc.deinit()
+gpio.output(14, 0)
 
 
-# ---------------- ПОСТРОЕНИЕ ГРАФИКА ----------------
+while (r2r.get_voltage()>0.05):
+    x0 = time.time()-time_null_def
+    x.append(x0)
+    y0 = r2r.get_voltage()
+    y.append(y0)
+    #time.sleep(time_measure)
+    print(y0)
+    #sampl_per.append(time.time()-x0)
 
-plt.figure(figsize=(10, 6))
+plt.figure(figsize=(10,6))
 
-plt.ticklabel_format(
-    style='sci',
-    axis='both',
-    scilimits=(0, 0),
-    useMathText=True
-)
+plt.ticklabel_format(style='sci', axis='both', scilimits=(0,0), useMathText = True)
 
 plt.minorticks_on()
-
-plt.grid(
-    visible=True,
-    which='major',
-    linestyle='-',
-    linewidth=1.5,
-    color='0.7'
-)
-
-plt.grid(
-    visible=True,
-    which='minor',
-    linestyle='--',
-    linewidth=1,
-    color='0.8'
-)
+plt.grid(visible = True, which = 'major', linestyle='-', linewidth = 1.5, color='0.7')
+plt.grid(visible = True, which = 'minor', linestyle='--', linewidth = 1, color='0.8')
 
 plt.xlabel(r"$T, seconds$")
 plt.ylabel(r"$U, Volts$")
 
-plt.plot(
-    x,
-    y,
-    label='graph',
-    marker='',
-    linestyle='-',
-    color='#abcf40',
-    linewidth=1
-)
-
+plt.plot(x, y, label = 'grpah', marker = '', linestyle='-', color = '#abcf40', linewidth = 1)
 plt.show()
