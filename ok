@@ -1,74 +1,148 @@
-import i2c_adc as ac
 import time
-import matplotlib.pyplot as plt
+import smbus
 import RPi.GPIO as gpio
+import matplotlib.pyplot as plt
+
+
+# ---------------- НАСТРОЙКИ ----------------
 
 mxv = 5.150
-r2r = ac.MCP3021(mxv)
+address = 0x4D
+bus_number = 1
+
+control_pin = 14
 
 time_measure = 0.001
+charge_limit = 4.68
+discharge_limit = 0.05
+
+
+# ---------------- ДРАЙВЕР MCP3021 ----------------
+
+class MCP3021:
+    def __init__(self, dynamic_range, verbose=False):
+        self.bus = smbus.SMBus(bus_number)
+        self.dynamic_range = dynamic_range
+        self.address = address
+        self.verbose = verbose
+
+    def deinit(self):
+        self.bus.close()
+
+    def get_number(self):
+        data = self.bus.read_word_data(self.address, 0)
+
+        lower_data_byte = data >> 8
+        upper_data_byte = data & 0xFF
+
+        number = (upper_data_byte << 6) | (lower_data_byte >> 2)
+
+        return number
+
+    def get_voltage(self):
+        return (self.get_number() / 1024) * self.dynamic_range
+
+
+# ---------------- ИЗМЕРЕНИЕ ----------------
+
+adc = MCP3021(mxv)
+
 x = []
 y = []
 
 gpio.setmode(gpio.BCM)
-gpio.setup(14, gpio.OUT, initial=0)
+gpio.setup(control_pin, gpio.OUT, initial=0)
 
 try:
-    gpio.output(14, 0)
+    # Ожидание полной разрядки
+    gpio.output(control_pin, 0)
 
-    # Ожидание полной разрядки конденсатора
     while True:
-        voltage = r2r.get_voltage()
+        voltage = adc.get_voltage()
 
-        if voltage < 0.05:
+        if voltage < discharge_limit:
             break
 
         time.sleep(time_measure)
 
-    # Зарядка конденсатора
-    gpio.output(14, 1)
+    # Зарядка
+    gpio.output(control_pin, 1)
+
     time_null_def = time.monotonic()
 
     while True:
         x0 = time.monotonic() - time_null_def
-        y0 = r2r.get_voltage()
+        y0 = adc.get_voltage()
 
         x.append(x0)
         y.append(y0)
 
-        if y0 >= 4.68:
+        if y0 >= charge_limit:
             break
 
         time.sleep(time_measure)
 
-    # Разрядка конденсатора
-    gpio.output(14, 0)
+    # Разрядка
+    gpio.output(control_pin, 0)
 
     while True:
         x0 = time.monotonic() - time_null_def
-        y0 = r2r.get_voltage()
+        y0 = adc.get_voltage()
 
         x.append(x0)
         y.append(y0)
 
-        if y0 <= 0.05:
+        if y0 <= discharge_limit:
             break
 
         time.sleep(time_measure)
 
 finally:
-    gpio.output(14, 0)
+    gpio.output(control_pin, 0)
     gpio.cleanup()
-    r2r.deinit()
+    adc.deinit()
 
 
-# Построение графика — твоя изначальная функция
+# ---------------- ПОСТРОЕНИЕ ГРАФИКА ----------------
+
 plt.figure(figsize=(10, 6))
-plt.ticklabel_format(style='sci', axis='both', scilimits=(0, 0), useMathText=True)
+
+plt.ticklabel_format(
+    style='sci',
+    axis='both',
+    scilimits=(0, 0),
+    useMathText=True
+)
+
 plt.minorticks_on()
-plt.grid(visible=True, which='major', linestyle='-', linewidth=1.5, color='0.7')
-plt.grid(visible=True, which='minor', linestyle='--', linewidth=1, color='0.8')
+
+plt.grid(
+    visible=True,
+    which='major',
+    linestyle='-',
+    linewidth=1.5,
+    color='0.7'
+)
+
+plt.grid(
+    visible=True,
+    which='minor',
+    linestyle='--',
+    linewidth=1,
+    color='0.8'
+)
+
 plt.xlabel(r"$T, seconds$")
 plt.ylabel(r"$U, Volts$")
-plt.plot(x, y, label='graph', marker='', linestyle='-', color='#abcf40', linewidth=1)
+
+plt.plot(
+    x,
+    y,
+    label='graph',
+    marker='',
+    linestyle='-',
+    color='#abcf40',
+    linewidth=1
+)
+
 plt.show()
